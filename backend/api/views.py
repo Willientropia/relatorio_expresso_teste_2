@@ -7,7 +7,7 @@ from rest_framework import serializers
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
-        fields = ['id', 'nome', 'cpf', 'endereco', 'created_at', 'updated_at']
+        fields = ['id', 'nome', 'cpf', 'endereco', 'telefone', 'email', 'created_at', 'updated_at']
 
 @api_view(['GET', 'POST'])
 def customer_list(request):

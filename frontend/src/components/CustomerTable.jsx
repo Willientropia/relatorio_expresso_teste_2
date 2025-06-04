@@ -1,6 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const CustomerTable = ({ customers, onDelete }) => {
+  const navigate = useNavigate();
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full border">
@@ -14,13 +17,20 @@ const CustomerTable = ({ customers, onDelete }) => {
         </thead>
         <tbody className="divide-y divide-gray-200">
           {customers.map((customer) => (
-            <tr key={customer.id}>
+            <tr
+              key={customer.id}
+              className="hover:bg-gray-50 cursor-pointer"
+              onClick={() => navigate(`/client/${customer.id}`)}
+            >
               <td className="px-6 py-4">{customer.nome}</td>
               <td className="px-6 py-4">{customer.cpf}</td>
               <td className="px-6 py-4">{customer.endereco}</td>
               <td className="px-6 py-4">
-                <button 
-                  onClick={() => onDelete(customer.id)}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent row click when clicking delete
+                    onDelete(customer.id);
+                  }}
                   className="text-red-500 hover:text-red-700"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

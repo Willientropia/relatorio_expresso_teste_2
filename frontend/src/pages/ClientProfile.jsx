@@ -11,31 +11,134 @@ function ClientProfile() {
   const { id } = useParams();
   const [activeTab, setActiveTab] = useState('uc');
   const [ucs, setUcs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
+
+  const fetchUCs = async () => {
+    try {
+      const response = await fetch(`/api/customers/${id}/ucs/`);
+      if (response.ok) {
+        const data = await response.json();
+        setUcs(data);
+      }
+    } catch (error) {
+      console.error('Error fetching UCs:', error);
+    }
+  };
 
   useEffect(() => {
-    // Fetch client data
-    fetch(`/api/customers/${id}/`)
-      .then(response => response.json())
-      .then(data => setClient(data))
-      .catch(error => console.error('Error:', error));
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // Fetch client data
+        const clientResponse = await fetch(`/api/customers/${id}/`);
+        if (clientResponse.ok) {
+          const clientData = await clientResponse.json();
+          setClient(clientData);
+        }
+        
+        // Fetch UCs
+        await fetchUCs();
+      } catch (error) {
+        console.error('Error:', error);
+      } finally {
+        setLoading(false);
+        setDataLoaded(true);
+      }
+    };
 
-    // Fetch UCs data (to be implemented in the backend)
-    setUcs([
-      { id: 1, codigo: 'UC001', endereco: 'Rua das Flores, 123 - Centro, São Paulo/SP', tipo: 'Residencial' },
-      { id: 2, codigo: 'UC002', endereco: 'Avenida Brasil, 456 - Jardins, São Paulo/SP', tipo: 'Comercial' },
-      { id: 3, codigo: 'UC003', endereco: 'Rua dos Pinheiros, 789 - Pinheiros, São Paulo/SP', tipo: 'Industrial' }
-    ]);
+    fetchData();
   }, [id]);
 
-  const handleAddUc = (newUc) => {
-    setUcs([...ucs, { ...newUc, id: Date.now() }]);
+  const handleAddUc = async (newUc) => {
+    try {
+      const response = await fetch(`/api/customers/${id}/ucs/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newUc)
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUcs([...ucs, data]);
+      } else {
+        const error = await response.json();
+        alert('Erro ao adicionar UC: ' + (error.codigo?.[0] || error.detail || 'Erro desconhecido'));
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Erro ao adicionar UC');
+    }
   };
 
-  const handleDeleteUc = (id) => {
-    setUcs(ucs.filter(uc => uc.id !== id));
+  const handleDeleteUc = async (ucId) => {
+    if (!confirm('Tem certeza que deseja excluir esta UC?')) return;
+    
+    try {
+      const response = await fetch(`/api/customers/${id}/ucs/${ucId}/`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        setUcs(ucs.filter(uc => uc.id !== ucId));
+      } else {
+        const error = await response.json();
+        alert('Erro: ' + (error.error || 'Não foi possível excluir a UC'));
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Erro ao excluir UC');
+    }
   };
 
-  if (!client) {
+  const handleToggleStatus = async (ucId) => {
+    try {
+      const response = await fetch(`/api/customers/${id}/ucs/${ucId}/toggle/`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const updatedUc = await response.json();
+        setUcs(ucs.map(uc => uc.id === ucId ? updatedUc : uc));
+      } else {
+        alert('Erro ao alterar status da UC');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Erro ao alterar status da UC');
+    }
+  };
+
+  const handleEditUc = async (editedUc) => {
+    try {
+      const response = await fetch(`/api/customers/${id}/ucs/${editedUc.id}/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          codigo: editedUc.codigo,
+          endereco: editedUc.endereco,
+          tipo: editedUc.tipo
+        })
+      });
+      
+      if (response.ok) {
+        const updatedUc = await response.json();
+        setUcs(ucs.map(uc => uc.id === editedUc.id ? updatedUc : uc));
+      } else {
+        const error = await response.json();
+        alert('Erro ao editar UC: ' + (error.detail || 'Erro desconhecido'));
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Erro ao editar UC');
+    }
+  };
+
+  if (loading || !client || !dataLoaded) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="text-center">
@@ -47,9 +150,15 @@ function ClientProfile() {
   }
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">Perfil do Cliente</h1>
+        <div className="mb-6">
+          <a href="/" className="text-indigo-600 hover:text-indigo-800 mb-4 inline-block">
+            <i className="fas fa-arrow-left mr-2"></i>
+            Voltar para lista de clientes
+          </a>
+          <h1 className="text-3xl font-bold text-gray-800">Perfil do Cliente</h1>
+        </div>
         
         <ClientInfoCard client={client} onEdit={() => console.log('Edit client')} />
         
@@ -58,7 +167,7 @@ function ClientProfile() {
             activeTab={activeTab}
             onTabChange={setActiveTab}
             tabs={[
-              { id: 'uc', label: 'Unidades Consumidoras' },
+              { id: 'uc', label: 'Unidades Consumidoras', icon: 'plug' },
               { id: 'documents', label: 'Documentos', icon: 'file' },
               { id: 'invoices', label: 'Faturas', icon: 'file-invoice-dollar' },
               { id: 'utility', label: 'Concessionária', icon: 'building' },
@@ -72,6 +181,8 @@ function ClientProfile() {
                 ucs={ucs}
                 onAddUc={handleAddUc}
                 onDeleteUc={handleDeleteUc}
+                onToggleStatus={handleToggleStatus}
+                onEditUc={handleEditUc}
               />
             )}
             
@@ -91,17 +202,17 @@ function ClientProfile() {
               />
             )}
             
-            {activeTab === 'history' && (
+            {activeTab === 'invoices' && (
               <EmptyState
-                icon="history"
-                title="Histórico do cliente"
-                description="Visualize o histórico de consumo, pagamentos e interações com o cliente."
+                icon="file-invoice-dollar"
+                title="Faturas do cliente"
+                description="Visualize e gerencie as faturas de energia do cliente."
                 action={
                   <ActionButton
-                    icon="chart-line"
-                    onClick={() => console.log('View charts')}
+                    icon="download"
+                    onClick={() => console.log('Import invoices')}
                   >
-                    Ver Gráficos
+                    Importar Faturas
                   </ActionButton>
                 }
               />
@@ -118,6 +229,22 @@ function ClientProfile() {
                     onClick={() => console.log('Import invoices')}
                   >
                     Importar Faturas em aberto
+                  </ActionButton>
+                }
+              />
+            )}
+            
+            {activeTab === 'history' && (
+              <EmptyState
+                icon="history"
+                title="Histórico do cliente"
+                description="Visualize o histórico de consumo, pagamentos e interações com o cliente."
+                action={
+                  <ActionButton
+                    icon="chart-line"
+                    onClick={() => console.log('View charts')}
+                  >
+                    Ver Gráficos
                   </ActionButton>
                 }
               />

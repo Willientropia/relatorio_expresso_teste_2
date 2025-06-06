@@ -1,3 +1,4 @@
+// frontend/src/pages/ClientProfile.jsx
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import ClientInfoCard from '../components/ClientInfoCard';
@@ -5,6 +6,7 @@ import TabNavigation from '../components/TabNavigation';
 import UCTable from '../components/UCTable';
 import EmptyState from '../components/EmptyState';
 import ActionButton from '../components/ActionButton';
+import FaturaImport from '../components/FaturaImport';
 
 function ClientProfile() {
   const [client, setClient] = useState(null);
@@ -219,19 +221,7 @@ function ClientProfile() {
             )}
 
             {activeTab === 'utility' && (
-              <EmptyState
-                icon="building"
-                title="Concessionária"
-                description="Gerencie a integração com a concessionária de energia."
-                action={
-                  <ActionButton
-                    icon="file-import"
-                    onClick={() => console.log('Import invoices')}
-                  >
-                    Importar Faturas em aberto
-                  </ActionButton>
-                }
-              />
+              <FaturaImport customerId={id} />
             )}
             
             {activeTab === 'history' && (

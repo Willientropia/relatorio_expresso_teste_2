@@ -5,6 +5,10 @@ import logging
 import time
 from datetime import datetime
 from selenium import webdriver
+try:
+    import undetected_chromedriver as uc
+except ImportError:  # Fallback if the package is not installed
+    uc = None
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -81,9 +85,12 @@ class EquatorialService:
             }
             chrome_options.add_experimental_option("prefs", prefs)
             
-            # Inicializar o driver
+            # Inicializar o driver utilizando undetected-chromedriver se disponível
             logger.info("Inicializando o driver do Chrome...")
-            self.driver = webdriver.Chrome(options=chrome_options)
+            if uc:
+                self.driver = uc.Chrome(options=chrome_options)
+            else:
+                self.driver = webdriver.Chrome(options=chrome_options)
               # Injetar script para enganar detecção de automação - versão mais simples
             logger.info("Aplicando scripts para evasão de detecção...")
             

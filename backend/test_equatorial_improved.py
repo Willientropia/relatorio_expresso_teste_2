@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 def test_improved_service():
     """Testa o serviço melhorado com as técnicas do bot Python"""
     print("=== TESTE DO SERVIÇO EQUATORIAL MELHORADO ===")
-    print("Incorporando técnicas anti-detecção do bot Python")
     print("-" * 50)
     
     # Dados de teste
@@ -96,20 +95,17 @@ def test_improved_service():
         print(f"✓ Tarefa criada: ID {task.id}")
         
         # 5. Inicializar serviço
-        print("\n4. Inicializando serviço melhorado...")
+        print("\n4. Inicializando serviço...")
         service = EquatorialService(customer.id)
         
         # 6. Configurar driver
-        print("\n5. Configurando driver com técnicas anti-detecção...")
+        print("\n5. Configurando driver...")
         if not service.setup_driver():
             raise Exception("Falha ao configurar driver")
         print("✓ Driver configurado com sucesso")
         
         # 7. Testar login
-        print("\n6. Testando login (processo de 2 etapas)...")
-        print("   - Etapa 1: UC e CPF")
-        print("   - Etapa 2: Data de nascimento")
-        print("   - Navegação direta para Segunda Via")
+        print("\n6. Testando login...")
         
         login_success = service.login()
         
@@ -118,11 +114,7 @@ def test_improved_service():
             
             # 8. Processar faturas
             print("\n7. Processando faturas...")
-            print("   - Extraindo UCs disponíveis")
-            print("   - Selecionando cada UC")
-            print("   - Tratando popups")
-            print("   - Baixando PDFs")
-            
+
             process_success = service.process_faturas()
             
             if process_success:

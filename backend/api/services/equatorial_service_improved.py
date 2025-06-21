@@ -438,15 +438,15 @@ class EquatorialService:
                         continue
                     
                     # Atualiza task para processando
-                    task = FaturaTask.objects.filter(
+                    # Alterado de .filter() para .get() para garantir que apenas uma task seja atualizada
+                    task = FaturaTask.objects.get(
                         customer=self.customer,
                         unidade_consumidora=uc_obj,
-                        status='pending'
-                    ).first()
+                        status='pending'  # Busca a task que está pronta para ser processada
+                    )
                     
-                    if task:
-                        task.status = 'processing'
-                        task.save()
+                    task.status = 'processing'
+                    task.save()
                     
                     # Seleciona a UC
                     dropdown = self.driver.find_element(By.CSS_SELECTOR, "#CONTENT_comboBoxUC")
@@ -468,21 +468,30 @@ class EquatorialService:
                     faturas_encontradas[uc_code] = faturas_da_uc
                     
                     # Atualiza task
-                    if task:
-                        task.status = 'completed'
-                        task.completed_at = datetime.now()
-                        task.save()
+                    task.status = 'completed'
+                    task.completed_at = datetime.now()
+                    task.save()
                     
                     # Volta para Segunda Via
                     self.driver.get(f"{self.base_url}/AgenciaGO/Servi%C3%A7os/aberto/SegundaVia.aspx")
                     time.sleep(3)
                     
+                except FaturaTask.DoesNotExist:
+                    logger.warning(f"Nenhuma tarefa pendente encontrada para a UC {uc_code}. Pulando.")
+                    continue
+                except FaturaTask.MultipleObjectsReturned:
+                    logger.error(f"Múltiplas tarefas pendentes encontradas para a UC {uc_code}. Limpando e continuando.")
+                    # Lógica para lidar com múltiplas tarefas (opcional, mas recomendado)
+                    FaturaTask.objects.filter(customer=self.customer, unidade_consumidora=uc_obj, status='pending').delete()
+                    continue # Pula esta UC nesta execução
                 except Exception as e:
                     logger.error(f"Erro ao processar UC {uc_code}: {e}")
-                    if task:
-                        task.status = 'failed'
-                        task.error_message = str(e)
-                        task.save()
+                    # A busca pela task pode falhar, então precisamos garantir que a task seja atualizada se ela existir
+                    task_to_fail = FaturaTask.objects.filter(customer=self.customer, unidade_consumidora=uc_obj, status='processing').first()
+                    if task_to_fail:
+                        task_to_fail.status = 'failed'
+                        task_to_fail.error_message = str(e)
+                        task_to_fail.save()
                     continue
             
             # Atualiza log
@@ -602,3 +611,30 @@ class EquatorialService:
         """Fecha o navegador"""
         if self.driver:
             self.driver.quit()
+
+    def processar_todas_faturas(self):
+        """Método principal para orquestrar todo o processo de scraping."""
+        logger.info(f"Iniciando processo completo de faturas para o cliente ID: {self.customer.id}")
+        try:
+            if not self.setup_driver():
+                raise Exception("Falha ao configurar o WebDriver.")
+
+            if not self.login():
+                raise Exception("Falha no processo de login.")
+
+            # O método process_faturas já contém a lógica de iterar sobre as UCs
+            if not self.process_faturas():
+                raise Exception("Falha ao processar as faturas.")
+
+            logger.info(f"Processo de faturas para o cliente ID: {self.customer.id} concluído com sucesso.")
+            return True
+        except Exception as e:
+            logger.error(f"Erro geral no processamento de faturas para o cliente {self.customer.id}: {e}", exc_info=True)
+            # Garante que as tasks sejam marcadas como falha em caso de erro geral
+            FaturaTask.objects.filter(customer=self.customer, status='processing').update(
+                status='failed',
+                error_message=str(e)
+            )
+            return False
+        finally:
+            self.close()

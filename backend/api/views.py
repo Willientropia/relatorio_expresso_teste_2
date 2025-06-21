@@ -7,6 +7,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from django.db import transaction
 import threading
+import requests # Adicionado para fazer requisições HTTP
 from .services.equatorial_service import EquatorialService
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -158,11 +159,15 @@ class FaturaTaskSerializer(serializers.ModelSerializer):
 
 @api_view(['POST'])
 def start_fatura_import(request, customer_id):
-    """Inicia o processo de importação de faturas"""
+    """
+    Inicia o processo de importação de faturas.
+    Esta view agora delega a tarefa de scraping para o serviço task_processor.
+    Lógica aprimorada para evitar tarefas duplicadas.
+    """
     try:
         customer = Customer.objects.get(pk=customer_id)
         
-        # Verifica se o cliente tem os dados necessários
+        # Validações de dados do cliente
         if not customer.data_nascimento:
             return Response(
                 {"error": "Cliente sem data de nascimento cadastrada"},
@@ -176,116 +181,64 @@ def start_fatura_import(request, customer_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Cria tasks para cada UC ativa
         active_ucs = customer.unidades_consumidoras.filter(data_vigencia_fim__isnull=True)
-        
         if not active_ucs.exists():
             return Response(
                 {"error": "Cliente não possui UCs ativas"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Cria as tarefas
+        # Lógica robusta para criar ou reutilizar tasks
         tasks = []
         with transaction.atomic():
             for uc in active_ucs:
-                # Verifica se já existe uma tarefa pendente para esta UC
-                existing_task = FaturaTask.objects.filter(
+                # Procura por uma tarefa existente para esta UC que possa ser reutilizada (pendente ou falha)
+                task = FaturaTask.objects.filter(
                     customer=customer,
                     unidade_consumidora=uc,
-                    status='pending'
+                    status__in=['pending', 'failed']
                 ).first()
-                
-                if existing_task:
-                    # Usa a tarefa existente
-                    tasks.append(existing_task)
+
+                if task:
+                    # Se encontrou, reseta o estado dela para ser executada novamente
+                    task.status = 'pending'
+                    task.error_message = None
+                    task.completed_at = None
+                    task.save()
                 else:
-                    # Cria uma nova tarefa
+                    # Se não encontrou nenhuma tarefa para reutilizar, cria uma nova
                     task = FaturaTask.objects.create(
                         customer=customer,
                         unidade_consumidora=uc,
                         status='pending'
                     )
-                    tasks.append(task)
+                tasks.append(task)
         
-        # Inicia o processo em background - versão melhorada
-        def run_import():
-            import logging
-            logging.basicConfig(
-                level=logging.INFO,
-                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                filename='import_thread.log',
-                filemode='a'
-            )
-            logger = logging.getLogger('import_thread')
+        # Delega a tarefa para o Task Processor
+        try:
+            task_processor_url = 'http://host.docker.internal:5001/process-task'
+            response = requests.post(task_processor_url, json={'customer_id': customer_id}, timeout=10)
             
-            try:
-                logger.info(f"Iniciando importação para cliente ID {customer_id}")
-                
-                # Marca tarefas como em processamento
-                for task in tasks:
-                    task.status = 'processing'
-                    task.save()
-                    logger.info(f"Tarefa {task.id} marcada como em processamento")
-                
-                service = EquatorialService(customer_id)
-                logger.info("Serviço Equatorial inicializado")
-                
-                try:
-                    # Configura driver
-                    logger.info("Configurando driver...")
-                    setup_success = service.setup_driver()
-                    logger.info(f"Driver configurado: {setup_success}")
-                    
-                    if setup_success:
-                        # Tenta login
-                        logger.info("Tentando login...")
-                        login_success = service.login()
-                        logger.info(f"Login: {login_success}")
-                        
-                        if login_success:
-                            # Processa faturas
-                            logger.info("Processando faturas...")
-                            process_success = service.process_faturas()
-                            logger.info(f"Processamento: {process_success}")
-                        else:
-                            logger.error("Falha no login")
-                            # Marca tarefas como falhas
-                            for task in tasks:
-                                task.status = 'failed'
-                                task.error_message = "Falha no login"
-                                task.save()
-                    else:
-                        logger.error("Falha na configuração do driver")
-                        # Marca tarefas como falhas
-                        for task in tasks:
-                            task.status = 'failed'
-                            task.error_message = "Falha na configuração do driver"
-                            task.save()
-                finally:
-                    # Fecha driver
-                    logger.info("Fechando driver...")
-                    service.close()
-                    
-            except Exception as e:
-                logger.exception(f"Erro durante importação: {str(e)}")
-                # Marca tarefas como falhas em caso de exceção
-                for task in tasks:
-                    task.status = 'failed'
-                    task.error_message = str(e)
-                    task.save()
+            if response.status_code != 202:
+                raise requests.exceptions.RequestException(f"Serviço de automação respondeu com status {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
+            # Se a comunicação com o bot falhar, marca as tarefas como falhas
+            error_msg = f"Não foi possível conectar ao serviço de automação: {e}"
+            for task in tasks:
+                task.status = 'failed'
+                task.error_message = error_msg
+                task.save()
+            return Response(
+                {"error": "Não foi possível iniciar a automação. Verifique se o 'task_processor' está ativo."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         
-        # Executa em thread separada
-        thread = threading.Thread(target=run_import)
-        thread.daemon = True
-        thread.start()
-        
-        # Retorna as tasks criadas
         serializer = FaturaTaskSerializer(tasks, many=True)
         return Response({
-            "message": "Importação iniciada",
+            "message": "Solicitação de importação enviada para o serviço de automação.",
             "tasks": serializer.data
-        }, status=status.HTTP_201_CREATED)
+        }, status=status.HTTP_202_ACCEPTED)
         
     except Customer.DoesNotExist:
         return Response(status=status.HTTP_404_NOT_FOUND)

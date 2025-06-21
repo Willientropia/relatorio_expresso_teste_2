@@ -71,11 +71,11 @@ class FaturaTask(models.Model):
     ]
     
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='fatura_tasks')
-    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE)
+    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='fatura_tasks')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    error_message = models.TextField(blank=True)
+    error_message = models.TextField(null=True, blank=True)  # Permitir que seja nulo
     
     class Meta:
         ordering = ['-created_at']

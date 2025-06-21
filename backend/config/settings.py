@@ -136,56 +136,26 @@ ALLOWED_HOSTS = ['*']  # Only for development
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Logging configuration
+# Logging configuration - Simplificado para evitar erros
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'equatorial_service.log',
-        },
         'console': {
             'level': 'INFO',
             'class': 'logging.StreamHandler',
         },
     },
     'loggers': {
-        'api.services.equatorial_service': {
-            'handlers': ['file', 'console'],
+        'django': {
+            'handlers': ['console'],
             'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
-    },
-}
-
-# backend/config/settings.py - Adicionar ao final do arquivo existente
-
-# Media files
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
-# Logging configuration
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'file': {
+        'api': { # Logger para nosso app
+            'handlers': ['console'],
             'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'equatorial_service.log',
-        },
-        'console': {
-            'level': 'INFO',
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'loggers': {
-        'api.services.equatorial_service': {
-            'handlers': ['file', 'console'],
-            'level': 'INFO',
-            'propagate': True,
+            'propagate': False,
         },
     },
 }

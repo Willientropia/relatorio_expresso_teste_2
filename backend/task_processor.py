@@ -72,4 +72,5 @@ def process_task():
 if __name__ == '__main__':
     print("Servidor de tarefas (Flask) rodando em http://127.0.0.1:5001")
     # Usar host '0.0.0.0' para ser acessível de fora do container (do host)
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # É importante desativar o modo debug ao usar threads para evitar problemas com o reloader do Flask.
+    app.run(host='0.0.0.0', port=5001, debug=False)

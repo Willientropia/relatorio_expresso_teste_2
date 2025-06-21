@@ -1,6 +1,32 @@
 # backend/api/models.py
 from django.db import models
 from django.utils import timezone
+from django.utils.text import get_valid_filename
+import os
+
+def fatura_upload_path(instance, filename):
+    # Extrai o mês e ano da data de referência
+    mes_ano_str = instance.mes_referencia.strftime('%b-%Y').upper() # ex: JAN-2025
+    # Monta o nome do arquivo a partir do ID da instância
+    # O ID será algo como '12345678_01_2025'
+    novo_nome_arquivo = f"{instance.id}.pdf"
+    return os.path.join('faturas', mes_ano_str, novo_nome_arquivo)
+
+def upload_to(instance, filename):
+    """Gera o caminho do arquivo para faturas, organizando por ano e mês."""
+    # Assegura que mes_referencia é um objeto date
+    if not hasattr(instance, 'mes_referencia') or not instance.mes_referencia:
+        # Fallback para o ID se a data não estiver disponível
+        return f'faturas/unknown/{instance.id}.pdf'
+
+    # Gera o nome da pasta no formato YYYY/MM (ex: 2025/06)
+    folder_path = instance.mes_referencia.strftime('%Y/%m')
+    
+    # O nome do arquivo agora é o próprio ID da fatura
+    # Isso garante consistência e unicidade.
+    new_filename = f"{instance.id}.pdf"
+    
+    return os.path.join('faturas', folder_path, new_filename)
 
 class Customer(models.Model):
     nome = models.CharField(max_length=100)
@@ -61,6 +87,33 @@ class UnidadeConsumidora(models.Model):
         ]
 
 
+class Fatura(models.Model):
+    # ID customizado: UC_MES_ANO (ex: 12345678_01_2025)
+    id = models.CharField(primary_key=True, max_length=255, editable=False)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='faturas')
+    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='faturas')
+    mes_referencia = models.DateField()
+    arquivo = models.FileField(upload_to=upload_to, max_length=500)
+    valor = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    vencimento = models.DateField(null=True, blank=True)
+    downloaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Garante que não haverá faturas duplicadas para a mesma UC no mesmo mês
+        unique_together = ('unidade_consumidora', 'mes_referencia')
+        ordering = ['-mes_referencia']
+
+    def save(self, *args, **kwargs):
+        if not self.id:
+            # Gera o ID customizado antes de salvar
+            mes_ano_id_str = self.mes_referencia.strftime('%m_%Y')
+            self.id = f"{self.unidade_consumidora.codigo}_{mes_ano_id_str}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Fatura {self.id}"
+
+
 class FaturaTask(models.Model):
     """Modelo para armazenar tarefas de download de faturas"""
     STATUS_CHOICES = [
@@ -91,18 +144,3 @@ class FaturaLog(models.Model):
     
     class Meta:
         ordering = ['-created_at']
-
-
-class Fatura(models.Model):
-    """Modelo para armazenar as faturas baixadas"""
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='faturas')
-    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='faturas')
-    mes_referencia = models.CharField(max_length=20)
-    arquivo = models.FileField(upload_to='faturas/%Y/%m/')
-    valor = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    vencimento = models.DateField(null=True, blank=True)
-    downloaded_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['-mes_referencia']
-        unique_together = ['unidade_consumidora', 'mes_referencia']

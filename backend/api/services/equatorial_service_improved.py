@@ -527,21 +527,95 @@ class EquatorialService:
         except Exception as e:
             logger.error(f"Erro ao configurar motivo: {e}")
             return False
+
+    def wait_for_download_complete(self, download_dir, timeout=45):
+        """Waits for a download to complete in the specified directory."""
+        logger.info(f"Waiting for download to complete in {download_dir}...")
+        seconds = 0
+        while seconds < timeout:
+            # Check for .crdownload files
+            crdownload_files = [f for f in os.listdir(download_dir) if f.endswith('.crdownload')]
+            if not crdownload_files:
+                logger.info("Download complete. No .crdownload files found.")
+                # Optional: wait a tiny bit more for file system to be ready
+                time.sleep(1) 
+                return True
+            
+            logger.info(f"Download in progress... ({len(crdownload_files)} .crdownload file(s) found)")
+            time.sleep(1)
+            seconds += 1
+            
+        logger.error(f"Download timed out after {timeout} seconds.")
+        # Clean up leftover .crdownload files to prevent issues on next run
+        for f in crdownload_files:
+            try:
+                os.remove(os.path.join(download_dir, f))
+            except OSError as e:
+                logger.warning(f"Could not remove crdownload file {f}: {e}")
+        raise TimeoutException(f"Download did not complete within {timeout} seconds.")
     
     def extract_and_download_invoices(self, uc_obj):
         """Extrai e baixa as faturas de uma UC específica"""
         faturas_info = []
+        download_dir = os.path.join(settings.MEDIA_ROOT, 'temp_faturas')
         
         try:
             # Encontra todas as faturas disponíveis
             rows = self.driver.find_elements(By.XPATH, "//tr[.//a[contains(text(), 'Download')]]")
             
+            if not rows:
+                logger.warning(f"Nenhuma fatura com link de download encontrada para a UC {uc_obj.codigo}")
+
             for row in rows:
+                month_text = ""
                 try:
                     # Extrai informações
                     month_element = row.find_element(By.XPATH, "./td[1]")
-                    month_text = month_element.text.strip()
+                    month_text = month_element.text.strip() # ex: 06/2025 or JUN/2025
                     
+                    logger.info(f"Processando mês de referência: '{month_text}'")
+
+                    # Tenta fazer o parsing da data com múltiplos formatos
+                    mes_referencia_date = None
+                    try:
+                        # Formato 1: Numérico (MM/YYYY)
+                        mes_referencia_date = datetime.strptime(month_text, "%m/%Y").date()
+                    except ValueError:
+                        # Formato 2: Mês abreviado (MMM/YYYY)
+                        meses_map = {
+                            'JAN': 1, 'FEV': 2, 'MAR': 3, 'ABR': 4, 'MAI': 5, 'JUN': 6,
+                            'JUL': 7, 'AGO': 8, 'SET': 9, 'OUT': 10, 'NOV': 11, 'DEZ': 12
+                        }
+                        try:
+                            mes_abr, ano_str = month_text.split('/')
+                            mes_num = meses_map.get(mes_abr.strip().upper()[:3])
+                            if mes_num:
+                                mes_referencia_date = datetime(int(ano_str), mes_num, 1).date()
+                            else:
+                                raise ValueError(f"Mês abreviado '{mes_abr}' não reconhecido.")
+                        except (ValueError, KeyError, IndexError) as e:
+                            logger.error(f"Erro ao parsear data no formato abreviado '{month_text}': {e}")
+                            raise ValueError(f"Formato de data '{month_text}' não suportado.")
+
+                    if not mes_referencia_date:
+                        raise ValueError("A data de referência não pôde ser determinada.")
+
+                    # --- VERIFICAÇÃO DE EXISTÊNCIA ---
+                    # Gera o ID que a fatura TERIA se já existisse
+                    fatura_id = f"{uc_obj.codigo}_{mes_referencia_date.strftime('%m_%Y')}"
+                    
+                    # Verifica no banco de dados se uma fatura com esse ID já existe
+                    if Fatura.objects.filter(id=fatura_id).exists():
+                        logger.info(f"Fatura {fatura_id} já existe. Pulando download.")
+                        faturas_info.append({
+                            'mes': month_text,
+                            'arquivo': f"{fatura_id}.pdf",
+                            'baixada': False, # False porque não baixamos de novo
+                            'status': 'existente'
+                        })
+                        continue # Pula para a próxima fatura da lista
+                    # --- FIM DA VERIFICAÇÃO ---
+
                     # Clica no download
                     download_link = row.find_element(By.XPATH, ".//a[contains(text(), 'Download')]")
                     download_link.click()
@@ -552,46 +626,57 @@ class EquatorialService:
                         ok_button = self.driver.find_element(By.CSS_SELECTOR, "#CONTENT_btnModal")
                         if ok_button.is_displayed():
                             ok_button.click()
-                            time.sleep(3)
-                    except:
+                            time.sleep(1)
+                    except NoSuchElementException:
                         pass
                     
-                    # Aguarda download
-                    time.sleep(5)
+                    # Aguarda download usando o novo método robusto
+                    self.wait_for_download_complete(download_dir)
                     
                     # Procura arquivo baixado
-                    download_dir = os.path.join(settings.MEDIA_ROOT, 'temp_faturas')
-                    files = sorted([f for f in os.listdir(download_dir) if f.endswith('.pdf')], 
-                                 key=lambda x: os.path.getctime(os.path.join(download_dir, x)))
+                    files = sorted(
+                        [os.path.join(download_dir, f) for f in os.listdir(download_dir) if f.endswith('.pdf')],
+                        key=os.path.getmtime
+                    )
                     
                     if files:
                         # Pega o arquivo mais recente
-                        latest_file = files[-1]
-                        file_path = os.path.join(download_dir, latest_file)
+                        latest_file_path = files[-1]
                         
                         # Lê o arquivo
-                        with open(file_path, 'rb') as f:
+                        with open(latest_file_path, 'rb') as f:
                             file_content = f.read()
                         
-                        # Cria ou atualiza fatura no banco
-                        fatura, created = Fatura.objects.update_or_create(
+                        # Cria a fatura no banco de dados, passando o ID manualmente
+                        fatura = Fatura(
+                            id=fatura_id,
                             customer=self.customer,
                             unidade_consumidora=uc_obj,
-                            mes_referencia=month_text,
-                            defaults={
-                                'arquivo': ContentFile(file_content, name=f"{uc_obj.codigo}_{month_text.replace('/', '_')}.pdf")
-                            }
+                            mes_referencia=mes_referencia_date,
                         )
+                        # Anexa o conteúdo do arquivo. O nome do arquivo não é mais tão importante aqui,
+                        # pois o `upload_to` cuidará do caminho e nome final.
+                        fatura.arquivo.save(f"{fatura.id}.pdf", ContentFile(file_content), save=True)
                         
                         # Remove arquivo temporário
-                        os.remove(file_path)
+                        os.remove(latest_file_path)
                         
+                        logger.info(f"Fatura {fatura.id} criada com sucesso.")
                         faturas_info.append({
                             'mes': month_text,
                             'arquivo': fatura.arquivo.name,
-                            'baixada': True
+                            'baixada': True,
+                            'status': 'criada'
                         })
-                    
+                    else:
+                        logger.error(f"Download concluído, mas PDF não encontrado para fatura {month_text}")
+                        faturas_info.append({
+                            'mes': month_text,
+                            'arquivo': None,
+                            'baixada': False,
+                            'erro': 'Arquivo PDF não encontrado após download.'
+                        })
+
                 except Exception as e:
                     logger.error(f"Erro ao baixar fatura {month_text}: {e}")
                     faturas_info.append({

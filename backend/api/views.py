@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.db import transaction
 import threading
 import requests # Adicionado para fazer requisições HTTP
-from .services.equatorial_service import EquatorialService
+from .services.equatorial_service_improved import EquatorialService
 
 class CustomerSerializer(serializers.ModelSerializer):
     data_nascimento = serializers.DateField(format='%Y-%m-%d', input_formats=['%Y-%m-%d', '%d/%m/%Y'])
@@ -134,17 +134,17 @@ def uc_toggle_status(request, customer_id, uc_id):
 # Views para faturas
 class FaturaSerializer(serializers.ModelSerializer):
     arquivo_url = serializers.SerializerMethodField()
-    
+    unidade_consumidora_codigo = serializers.CharField(source='unidade_consumidora.codigo', read_only=True)
+
     class Meta:
         model = Fatura
-        fields = ['id', 'unidade_consumidora', 'mes_referencia', 'arquivo', 
+        fields = ['id', 'unidade_consumidora', 'unidade_consumidora_codigo', 'mes_referencia', 'arquivo', 
                   'arquivo_url', 'valor', 'vencimento', 'downloaded_at']
     
     def get_arquivo_url(self, obj):
         if obj.arquivo:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.arquivo.url)
+            # Corrigido para retornar a URL relativa correta
+            return obj.arquivo.url
         return None
 
 

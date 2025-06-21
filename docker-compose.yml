@@ -4,11 +4,10 @@ services:
     build: ./backend
     volumes:
       - ./backend:/app
-      - media_data:/app/media
-    ports:
-      - "8000:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Use a bind mount to map the host directory directly to the container
+      - ./backend/media:/app/media 
+    # A porta 8000 não precisa mais ser exposta para o host,
+    # apenas para a rede interna do Docker, o que é o padrão.
     environment:
       - DEBUG=1
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
@@ -20,6 +19,9 @@ services:
     build: 
       context: ./frontend
       dockerfile: Dockerfile
+    volumes:
+      # Map the same host directory to the Nginx container
+      - ./backend/media:/app/media 
     ports:
       - "80:80"
     depends_on:
@@ -30,6 +32,3 @@ services:
 networks:
   app-network:
     driver: bridge
-
-volumes:
-  media_data:

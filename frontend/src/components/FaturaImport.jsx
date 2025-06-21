@@ -176,22 +176,22 @@ const FaturaImport = ({ customerId }) => {
       );
     }
 
-    // Agrupa faturas por UC
+    // Agrupa faturas por UC usando o código da UC
     const faturasByUC = faturas.reduce((acc, fatura) => {
-      const uc = fatura.unidade_consumidora;
-      if (!acc[uc]) {
-        acc[uc] = [];
+      const ucCodigo = fatura.unidade_consumidora_codigo;
+      if (!acc[ucCodigo]) {
+        acc[ucCodigo] = [];
       }
-      acc[uc].push(fatura);
+      acc[ucCodigo].push(fatura);
       return acc;
     }, {});
 
     return (
       <div className="space-y-6">
-        {Object.entries(faturasByUC).map(([uc, ucFaturas]) => (
-          <div key={uc} className="bg-white p-6 rounded-lg border border-gray-200">
+        {Object.entries(faturasByUC).map(([ucCodigo, ucFaturas]) => (
+          <div key={ucCodigo} className="bg-white p-6 rounded-lg border border-gray-200">
             <h4 className="font-medium text-gray-900 mb-4">
-              UC: {ucFaturas[0].unidade_consumidora}
+              UC: {ucCodigo}
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {ucFaturas.map((fatura) => (
